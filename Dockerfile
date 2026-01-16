@@ -1,38 +1,44 @@
-# Dockerfile
+# Dockerfile - Production Ready
 
-# 1. Basisimage auswählen (Python 3.9 als Beispiel)
 FROM python:3.9-slim
 
-# 2. Systemabhängigkeiten installieren (PyMuPDF benötigt evtl. build tools)
-#    Debian/Ubuntu basiert:
+# Systemabhängigkeiten installieren (für PyMuPDF)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-# 3. Arbeitsverzeichnis im Container setzen
+# Non-root User erstellen für Sicherheit
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app && \
+    chown -R appuser:appuser /app
+
 WORKDIR /app
 
-# 4. requirements.txt kopieren und Abhängigkeiten installieren
+# Requirements installieren (als root, aber global)
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# 5. Restlichen Anwendungscode kopieren
-COPY . .
+# Anwendungscode kopieren
+COPY --chown=appuser:appuser . .
 
-# 6. Port freigeben, auf dem Flask läuft (muss mit app.run übereinstimmen)
+# Environment Variablen für Production
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    FLASK_ENV=production
+
+# Port freigeben
 EXPOSE 5000
 
-# 7. Befehl zum Starten der Anwendung definieren
-#    Verwendet Flask's eingebauten Server (gut für Entwicklung, für Produktion Gunicorn o.ä. erwägen)
-#    Host 0.0.0.0 ist wichtig, damit die App von außerhalb des Containers erreichbar ist.
-CMD ["flask", "run", "--host=0.0.0.0", "--port=5000"]
+# Auf non-root User wechseln
+USER appuser
 
-# Alternativ für Produktion mit Gunicorn (müsste zu requirements.txt hinzugefügt werden):
-# CMD ["gunicorn", "--bind", "0.0.0.0:5000", "app:app"]
-
-# Memory Limits für Python hinzufügen
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONMALLOC=debug
-ENV PYTHONTRACEMALLOC=1
-
-# Container Memory Limits in docker-compose.yml setzen
+# Gunicorn mit Production Settings
+CMD ["gunicorn", \
+    "--workers", "4", \
+    "--threads", "2", \
+    "--timeout", "120", \
+    "--bind", "0.0.0.0:5000", \
+    "--access-logfile", "-", \
+    "--error-logfile", "-", \
+    "--log-level", "info", \
+    "app:app"]

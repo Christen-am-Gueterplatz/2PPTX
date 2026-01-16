@@ -3,3 +3,5 @@ Flask
 python-pptx
 Pillow
 PyMuPDF
+gunicorn
+python-dotenv

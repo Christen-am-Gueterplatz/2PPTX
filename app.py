@@ -1,7 +1,7 @@
 # app.py
 import io
 import os
-from flask import Flask, request, render_template, send_file, jsonify
+from flask import Flask, request, render_template, send_file, jsonify, session, redirect, url_for
 from pptx import Presentation
 from pptx.util import Inches, Pt, Emu
 from pptx.enum.shapes import MSO_SHAPE
@@ -11,6 +11,10 @@ from PIL import Image, ImageOps # ImageOps für EXIF-Orientierung hinzufügen
 import fitz  # PyMuPDF
 import traceback # Für detaillierteres Error-Logging
 import gc  # Garbage Collector
+from dotenv import load_dotenv
+
+# Lade Umgebungsvariablen aus .env Datei
+load_dotenv()
 
 # --- Konstanten ---
 SLIDE_WIDTH_EMU = 9144000 # 10 inches
@@ -22,6 +26,10 @@ MAX_IMG_HEIGHT_PX = 1080
 app = Flask(__name__)
 # Erhöhe das Limit für potenziell viele Dateien aus Ordnern
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # Max Upload 200 MB
+# Secret Key für Sessions (sollte in Produktion ein zufälliger String sein)
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
+# Passwort aus Umgebungsvariable
+APP_PASSWORD = os.getenv('APP_PASSWORD', 'password')
 
 # --- NEUE Hilfsfunktion: Bild verarbeiten (Größe, Orientierung) ---
 def process_image_stream(image_stream):
@@ -104,9 +112,12 @@ def add_image_centered(slide, image_stream):
         except Exception:
             pass # Wenn selbst das fehlschlägt
 
-# --- ANGEPASSTE Route: /upload ---
+# --- ANGEPASSTE Route: /upload (geschützt) ---
 @app.route('/upload', methods=['POST'])
 def upload_files():
+    if not check_auth():
+        return jsonify({"error": "Nicht authentifiziert"}), 401
+    
     processed_image_streams = []
     try:
         files = request.files.getlist('files')
@@ -204,12 +215,36 @@ def create_presentation(image_streams):
     
     return pptx_io
 
-# --- Rest des Codes (index Route, if __name__ == '__main__') bleibt gleich ---
+# --- Authentifizierungs-Middleware ---
+def check_auth():
+    """Prüft, ob der Benutzer authentifiziert ist."""
+    return session.get('authenticated', False)
+
+# --- Login Route ---
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        password = request.form.get('password', '')
+        if password == APP_PASSWORD:
+            session['authenticated'] = True
+            return redirect(url_for('index'))
+        else:
+            return render_template('login.html', error='Falsches Passwort')
+    return render_template('login.html')
+
+# --- Logout Route ---
+@app.route('/logout')
+def logout():
+    session.pop('authenticated', None)
+    return redirect(url_for('login'))
+
+# --- Index Route (geschützt) ---
 @app.route('/')
 def index():
+    if not check_auth():
+        return redirect(url_for('login'))
     return render_template('index.html')
 
 if __name__ == '__main__':
-    # app.run(debug=True, host='0.0.0.0', port=5000) # Für Debugging
     app.run(debug=False, host='0.0.0.0', port=5000)
 
