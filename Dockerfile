@@ -36,7 +36,7 @@ USER appuser
 CMD ["gunicorn", \
     "--workers", "4", \
     "--threads", "2", \
-    "--timeout", "120", \
+    "--timeout", "300", \
     "--bind", "0.0.0.0:5000", \
     "--access-logfile", "-", \
     "--error-logfile", "-", \

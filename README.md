@@ -93,9 +93,10 @@ http://localhost:5000
 
 - **Passwort ändern:** Das Standard-Passwort `password` sollte in Produktion unbedingt geändert werden
 - **HTTPS verwenden:** In Produktionsumgebungen sollte HTTPS verwendet werden (z.B. mit einem Reverse Proxy wie nginx)
-- **Secret Key:** Für Produktion sollte auch `SECRET_KEY` in der `.env` gesetzt werden:
-  ```
+- **Upload-Limit anpassen:** Über `MAX_UPLOAD_MB` (Standard: 500 MB) kann die maximale Uploadgröße definiert werden:
+  ```env
   SECRET_KEY=ein-sehr-langer-zufälliger-string
   APP_PASSWORD=IhrSicheresPasswort
+  MAX_UPLOAD_MB=500
   ```
 

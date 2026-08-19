@@ -12,6 +12,7 @@ import fitz  # PyMuPDF
 import traceback # Für detaillierteres Error-Logging
 import gc  # Garbage Collector
 from dotenv import load_dotenv
+from werkzeug.exceptions import RequestEntityTooLarge
 
 # Lade Umgebungsvariablen aus .env Datei
 load_dotenv()
@@ -24,8 +25,9 @@ MAX_IMG_HEIGHT_PX = 1080
 
 # --- Flask App Initialisierung ---
 app = Flask(__name__)
-# Erhöhe das Limit für potenziell viele Dateien aus Ordnern
-app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # Max Upload 200 MB
+# Erhöhe das Limit für potenziell viele Dateien oder große PDFs (Standard: 500 MB)
+MAX_UPLOAD_MB = int(os.getenv('MAX_UPLOAD_MB', '500'))
+app.config['MAX_CONTENT_LENGTH'] = MAX_UPLOAD_MB * 1024 * 1024
 # Secret Key für Sessions (sollte in Produktion ein zufälliger String sein)
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
 # Passwort aus Umgebungsvariable
@@ -179,6 +181,16 @@ def upload_files():
             mimetype='application/vnd.openxmlformats-officedocument.presentationml.presentation'
         )
 
+    except RequestEntityTooLarge:
+        for stream in processed_image_streams:
+            try:
+                stream.close()
+            except:
+                pass
+        processed_image_streams.clear()
+        gc.collect()
+        return jsonify({"error": f"Datei(en) zu groß! Das maximale Upload-Limit liegt bei {MAX_UPLOAD_MB} MB."}), 413
+
     except Exception as e:
         # Aufräumen im Fehlerfall
         for stream in processed_image_streams:
@@ -189,6 +201,10 @@ def upload_files():
         processed_image_streams.clear()
         gc.collect()
         return jsonify({"error": f"Verarbeitungsfehler: {str(e)}"}), 500
+
+@app.errorhandler(413)
+def request_entity_too_large(error):
+    return jsonify({"error": f"Datei(en) zu groß! Das maximale Upload-Limit liegt bei {MAX_UPLOAD_MB} MB."}), 413
 
 # Neue Hilfsfunktion zum Erstellen der Präsentation
 def create_presentation(image_streams):
