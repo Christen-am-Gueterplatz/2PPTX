@@ -76,17 +76,15 @@ def process_image_stream(image_stream):
         return image_stream # Oder return None und später darauf prüfen
 
 
-# --- ANGEPASSTE Hilfsfunktion: Bild zentriert auf Folie hinzufügen ---
+# --- Hilfsfunktion: Bild zentriert auf Folie hinzufügen ---
 def add_image_centered(slide, image_stream):
     """Fügt ein Bild aus einem Stream zentriert auf einer Folie hinzu."""
     try:
-        # Wichtig: Stream Position sicherstellen
         image_stream.seek(0)
-        img = Image.open(image_stream)
-        img_width_px, img_height_px = img.size
-        # Hier img.close() weglassen, da der Stream weiter benötigt wird
+        with Image.open(image_stream) as img:
+            img_width_px, img_height_px = img.size
 
-        image_stream.seek(0) # Stream für add_picture zurücksetzen
+        image_stream.seek(0)
 
         # Skalierungsfaktor für Folie berechnen
         scale_w = float(SLIDE_WIDTH_EMU) / img_width_px
@@ -99,12 +97,9 @@ def add_image_centered(slide, image_stream):
         top = int((SLIDE_HEIGHT_EMU - pic_height_emu) / 2)
 
         slide.shapes.add_picture(image_stream, left, top, width=pic_width_emu, height=pic_height_emu)
-        print(f"Verarbeitetes Bild hinzugefügt: Pos=(L:{left}, T:{top}), Größe=(W:{pic_width_emu}, H:{pic_height_emu}), OrigPx=(W:{img_width_px}, H:{img_height_px})")
-
     except Exception as e:
-        print(f"Fehler beim Hinzufügen des verarbeiteten Bildes zur Folie:")
+        print(f"Fehler beim Hinzufügen des Bildes zur Folie: {e}")
         traceback.print_exc()
-        # Fehler-Textbox als Fallback
         try:
             textbox = slide.shapes.add_textbox(Inches(1), Inches(1), Inches(8), Inches(1))
             tf = textbox.text_frame
@@ -112,15 +107,29 @@ def add_image_centered(slide, image_stream):
             tf.paragraphs[0].font.color.rgb = RGBColor(255, 0, 0)
             tf.word_wrap = True
         except Exception:
-            pass # Wenn selbst das fehlschlägt
+            pass
 
-# --- ANGEPASSTE Route: /upload (geschützt) ---
+def add_slide_with_image(prs, image_stream):
+    """Erstellt eine schwarze Folie und platziert das Bild zentriert."""
+    slide_layout = prs.slide_layouts[5]
+    slide = prs.slides.add_slide(slide_layout)
+    background = slide.background
+    fill = background.fill
+    fill.solid()
+    fill.fore_color.rgb = RGBColor(0, 0, 0)
+    add_image_centered(slide, image_stream)
+
+# --- Route: /upload (geschützt) ---
 @app.route('/upload', methods=['POST'])
 def upload_files():
     if not check_auth():
         return jsonify({"error": "Nicht authentifiziert"}), 401
     
-    processed_image_streams = []
+    prs = Presentation()
+    prs.slide_width = Emu(SLIDE_WIDTH_EMU)
+    prs.slide_height = Emu(SLIDE_HEIGHT_EMU)
+    slides_count = 0
+
     try:
         files = request.files.getlist('files')
         if not files or all(f.filename == '' for f in files):
@@ -130,48 +139,59 @@ def upload_files():
             try:
                 filename = file.filename.lower()
                 print(f"Verarbeite Datei: {file.filename}")
-                original_stream = io.BytesIO()
-                file.save(original_stream)
-                original_stream.seek(0)
+                file_bytes = file.read()
 
                 if filename.endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff')):
-                    processed_stream = process_image_stream(original_stream)
+                    stream = io.BytesIO(file_bytes)
+                    processed_stream = process_image_stream(stream)
+                    stream.close()
                     if processed_stream:
-                        processed_image_streams.append(processed_stream)
+                        add_slide_with_image(prs, processed_stream)
+                        processed_stream.close()
+                        slides_count += 1
                 
                 elif filename.endswith('.pdf'):
-                    pdf_document = fitz.open(stream=original_stream, filetype="pdf")
+                    pdf_document = fitz.open(stream=file_bytes, filetype="pdf")
                     try:
                         for page_num in range(len(pdf_document)):
                             page = pdf_document.load_page(page_num)
-                            pix = page.get_pixmap(dpi=150)
-                            img_bytes = pix.tobytes("png")
-                            pdf_page_stream = io.BytesIO(img_bytes)
-                            processed_stream = process_image_stream(pdf_page_stream)
-                            if processed_stream:
-                                processed_image_streams.append(processed_stream)
-                            pdf_page_stream.close()
-                            del pix  # Explizit Pixmap freigeben
+                            rect = page.rect
+                            
+                            # Native C-Skalierung direkt auf max 1920x1080 berechnen
+                            if rect.width > 0 and rect.height > 0:
+                                scale = min(MAX_IMG_WIDTH_PX / rect.width, MAX_IMG_HEIGHT_PX / rect.height)
+                                matrix = fitz.Matrix(scale, scale)
+                            else:
+                                matrix = fitz.Matrix(2.0, 2.0)
+
+                            # Direkt als JPEG rendern (extrem schnell, geringer RAM-Bedarf, hohe Qualität)
+                            pix = page.get_pixmap(matrix=matrix, alpha=False)
+                            img_bytes = pix.tobytes("jpeg", jpg_quality=92)
+                            page_stream = io.BytesIO(img_bytes)
+                            
+                            add_slide_with_image(prs, page_stream)
+                            page_stream.close()
+                            del pix
+                            slides_count += 1
                     finally:
                         pdf_document.close()
                 
-                original_stream.close()
-                gc.collect()  # Garbage Collection erzwingen
+                del file_bytes
+                gc.collect()
             
             except Exception as e:
                 print(f"Fehler bei Datei {file.filename}: {str(e)}")
+                traceback.print_exc()
                 continue
 
-        if not processed_image_streams:
-            return jsonify({"error": "Keine gültigen Bilder gefunden"}), 400
+        if slides_count == 0:
+            return jsonify({"error": "Keine gültigen Seiten/Bilder gefunden"}), 400
 
-        # Präsentation erstellen
-        pptx_io = create_presentation(processed_image_streams)
-        
-        # Aufräumen
-        for stream in processed_image_streams:
-            stream.close()
-        processed_image_streams.clear()
+        # Präsentation in Byte-Stream speichern
+        pptx_io = io.BytesIO()
+        prs.save(pptx_io)
+        pptx_io.seek(0)
+        del prs
         gc.collect()
 
         return send_file(
@@ -182,54 +202,20 @@ def upload_files():
         )
 
     except RequestEntityTooLarge:
-        for stream in processed_image_streams:
-            try:
-                stream.close()
-            except:
-                pass
-        processed_image_streams.clear()
+        del prs
         gc.collect()
         return jsonify({"error": f"Datei(en) zu groß! Das maximale Upload-Limit liegt bei {MAX_UPLOAD_MB} MB."}), 413
 
     except Exception as e:
-        # Aufräumen im Fehlerfall
-        for stream in processed_image_streams:
-            try:
-                stream.close()
-            except:
-                pass
-        processed_image_streams.clear()
+        del prs
         gc.collect()
+        print(f"Verarbeitungsfehler: {str(e)}")
+        traceback.print_exc()
         return jsonify({"error": f"Verarbeitungsfehler: {str(e)}"}), 500
 
 @app.errorhandler(413)
 def request_entity_too_large(error):
     return jsonify({"error": f"Datei(en) zu groß! Das maximale Upload-Limit liegt bei {MAX_UPLOAD_MB} MB."}), 413
-
-# Neue Hilfsfunktion zum Erstellen der Präsentation
-def create_presentation(image_streams):
-    prs = Presentation()
-    prs.slide_width = Emu(SLIDE_WIDTH_EMU)
-    prs.slide_height = Emu(SLIDE_HEIGHT_EMU)
-
-    for img_stream in image_streams:
-        slide_layout = prs.slide_layouts[5]
-        slide = prs.slides.add_slide(slide_layout)
-        background = slide.background
-        fill = background.fill
-        fill.solid()
-        fill.fore_color.rgb = RGBColor(0, 0, 0)
-        add_image_centered(slide, img_stream)
-
-    pptx_io = io.BytesIO()
-    prs.save(pptx_io)
-    pptx_io.seek(0)
-    
-    # Referenzen aufräumen
-    del prs
-    gc.collect()
-    
-    return pptx_io
 
 # --- Authentifizierungs-Middleware ---
 def check_auth():
