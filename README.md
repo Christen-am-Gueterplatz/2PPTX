@@ -1,102 +1,43 @@
-# 2PPTX – PDF-zu-PPTX-Konverter für WorshipTools Presenter
+<div align="center">
+  <img src=".github/assets/logo.png" alt="Christen am Güterplatz" width="112" height="112">
+  <h1>PDF zu PowerPoint</h1>
+  <p>PDF-Seiten als Präsentation für WorshipTools Presenter aufbereiten.</p>
+  <img alt="Python" src="https://img.shields.io/badge/Python-3776AB?logo=python&logoColor=white">
+  <img alt="Flask" src="https://img.shields.io/badge/Flask-000000?logo=flask&logoColor=white">
+  <img alt="Docker" src="https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white">
+  <p><a href="https://www.christen-am-gueterplatz.de">Gemeindewebseite</a> · <a href="https://github.com/Christen-am-Gueterplatz">Unsere Projekte</a></p>
+</div>
 
-🧭 Motivation
+## Überblick
 
-WorshipTools Presenter unterstützt aktuell keine PDF-Dateien. Da wir jedoch häufig Präsentationen im PDF-Format erhalten, stellte das ein erhebliches Problem im Ablauf dar. Manuelles Konvertieren war unpraktisch und zeitaufwendig.
+Wandelt jede PDF-Seite in eine bildbasierte PowerPoint-Folie im Format 1920 × 1080 um. Die Weboberfläche ist passwortgeschützt; freie Flächen erhalten einen schwarzen Hintergrund.
 
-2PPTX wurde als Lösung für genau dieses Problem entwickelt. Das Tool wandelt PDF-Dateien automatisch in kompatible PowerPoint-Präsentationen (.pptx) um – optimiert für den Einsatz in Presenter.
+## Technik
 
-✨ Funktionen
-	•	� Passwortschutz – Sicherer Zugriff auf das Tool
-	•	�🖤 Schwarzer Hintergrund jeder Folie (passend zur dunklen Oberfläche von Presenter und keine störendes weiß an der Leinwand)
-	•	🖼️ Automatische Bildskalierung auf Full-HD-Auflösung (1920x1080)
-	•	📁 Jede PDF-Seite wird zu einer PPTX-Folie
-	•	🖥️ Webbasierte Benutzeroberfläche – keine Kommandozeile notwendig
-	•	🐳 Docker-basiert – läuft containerisiert und isoliert
+Python und Flask, PyMuPDF für PDF-Seiten, Pillow für Bilder und `python-pptx` für Präsentationen. Docker Compose startet die Anwendung mit Gunicorn.
 
-🚀 Nutzung
+## Schnellstart
 
-Das Tool startet einen lokalen Webserver, der über den Browser aufgerufen wird.
+1. [.env.example](.env.example) als `.env` kopieren.
+2. Ein eigenes `APP_PASSWORD` und einen langen zufälligen `SECRET_KEY` setzen.
+3. Container bauen und starten:
 
-## 1. Passwort konfigurieren
-
-Erstellen Sie eine `.env` Datei im Projektverzeichnis:
-
-```bash
-# .env Datei erstellen
-echo APP_PASSWORD=IhrSicheresPasswort > .env
+```sh
+docker compose up --build -d
 ```
 
-Oder kopieren Sie die Beispieldatei und passen Sie das Passwort an:
+Die Oberfläche ist unter [localhost:5000](http://localhost:5000) erreichbar. PDF hochladen, umwandeln und die fertige PPTX herunterladen.
 
-```bash
-cp .env.example .env
-# Dann .env editieren und APP_PASSWORD anpassen
-```
+## Konfiguration und Betrieb
 
-**Standard-Passwort:** `password` (bitte in Produktion ändern!)
+| Variable        | Bedeutung                                                    |
+| --------------- | ------------------------------------------------------------ |
+| `APP_PASSWORD`  | Passwort der Weboberfläche; den Standard `password` ersetzen |
+| `SECRET_KEY`    | Zufälliger geheimer Schlüssel für Sitzungen                  |
+| `MAX_UPLOAD_MB` | Upload-Limit in MB; standardmäßig 500                        |
 
-## 2. Container starten
+Für einen öffentlichen Betrieb HTTPS über einen Reverse Proxy einrichten. Die Folien enthalten gerenderte Seitenbilder; einzelne Texte sind anschließend nicht als PowerPoint-Textfelder bearbeitbar.
 
-Mit docker-compose (empfohlen):
+Alternativ lokal: `pip install -r requirements.txt`, danach `flask run --host=127.0.0.1 --port=5000`. Für diese Entwicklungssitzung gegebenenfalls eine virtuelle Python-Umgebung verwenden.
 
-```bash
-docker-compose up --build
-```
-
-Oder manuell mit Docker:
-
-```bash
-# Image bauen
-docker build -t 2pptx .
-
-# Container starten (mit .env Datei)
-docker run -p 5000:5000 --env-file .env 2pptx
-```
-
-## 3. Web-UI aufrufen
-
-```
-http://localhost:5000
-```
-
-Sie werden zur Login-Seite weitergeleitet. Geben Sie das in der `.env` Datei konfigurierte Passwort ein.
-
-## 4. PDF hochladen
-
-Lade deine PDF-Datei hoch und erhalte eine fertige .pptx, optimiert für WorshipTools.
-
-📦 Installation lokal (Alternativ zur Docker-Nutzung)
-
-```bash
-git clone https://github.com/rwiebe/2PPTX.git
-cd 2PPTX
-
-# .env Datei erstellen und Passwort setzen
-cp .env.example .env
-# .env editieren und APP_PASSWORD anpassen
-
-# Dependencies installieren
-pip install -r requirements.txt
-
-# App starten
-flask run --host=0.0.0.0 --port=5000
-```
-
-Web-UI aufrufen:
-
-```
-http://localhost:5000
-```
-
-🔐 Sicherheit
-
-- **Passwort ändern:** Das Standard-Passwort `password` sollte in Produktion unbedingt geändert werden
-- **HTTPS verwenden:** In Produktionsumgebungen sollte HTTPS verwendet werden (z.B. mit einem Reverse Proxy wie nginx)
-- **Upload-Limit anpassen:** Über `MAX_UPLOAD_MB` (Standard: 500 MB) kann die maximale Uploadgröße definiert werden:
-  ```env
-  SECRET_KEY=ein-sehr-langer-zufälliger-string
-  APP_PASSWORD=IhrSicheresPasswort
-  MAX_UPLOAD_MB=500
-  ```
-
+Das zuvor im Projekt referenzierte Ausgangsrepository ist [rwiebe/2PPTX](https://github.com/rwiebe/2PPTX).
